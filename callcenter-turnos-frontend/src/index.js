@@ -1,10 +1,13 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import './index.css';
-import App from './App';
-import reportWebVitals from './reportWebVitals';
+import './index.css'; // Asegúrate de haber creado este archivo en src
+import App from './components/App'; // Corrige el nombre de la carpeta
 
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
 
-ReactDOM.render(<App />,document.getElementById('root'));
-
-reportWebVitals();
+// reportWebVitals eliminado porque no se está usando
