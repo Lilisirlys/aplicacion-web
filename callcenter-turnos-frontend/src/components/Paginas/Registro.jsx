@@ -1,11 +1,26 @@
-import React from "react";
+import React, { useState } from 'react';
 
-function Registro(){
-    return(
-        <div>
-            <h1>Registro</h1>
-        </div>
-    )
-}
+const Registro = () => {
+  const [nombre, setNombre] = useState("");
+
+  const manejarRegistro = () => {
+    alert(`Agente registrado: ${nombre}`);
+    // Aquí podrías hacer un POST a tu API
+  };
+
+  return (
+    <div style={{ padding: '20px' }}>
+      <h2>Registro de Agente</h2>
+      <input
+        type="text"
+        placeholder="Nombre del agente"
+        value={nombre}
+        onChange={(e) => setNombre(e.target.value)}
+      />
+      <br /><br />
+      <button onClick={manejarRegistro}>Guardar</button>
+    </div>
+  );
+};
 
 export default Registro;

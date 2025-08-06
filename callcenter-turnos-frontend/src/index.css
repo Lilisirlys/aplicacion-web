@@ -1,4 +1,82 @@
+:root {
+  --color-primario: #FF6600; /* naranja */
+  --color-secundario: #000000; /* negro */
+  --color-blanco: #ffffff;
+  --color-fondo: #f2f2f2;
+  --sombra: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --borde-redondo: 8px;
+}
+
 body {
   margin: 0;
-  font-family: Arial, sans-serif;
+  font-family: 'Segoe UI', sans-serif;
+  background-color: var(--color-fondo);
+  color: var(--color-secundario);
+}
+
+/* Header y Footer */
+.header, .footer {
+  background-color: var(--color-primario);
+  color: var(--color-blanco);
+  text-align: center;
+  padding: 20px;
+}
+
+.footer {
+  position: fixed;
+  bottom: 0;
+  width: 100%;
+  font-size: 14px;
+}
+
+/* Página principal */
+.home {
+  padding: 60px 20px;
+  text-align: center;
+}
+
+.home h2 {
+  color: var(--color-secundario);
+}
+
+/* Botones y campos */
+.botones {
+  margin-top: 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  align-items: center;
+}
+
+.btn {
+  background-color: var(--color-primario);
+  color: var(--color-blanco);
+  border: none;
+  padding: 12px 24px;
+  border-radius: var(--borde-redondo);
+  font-size: 16px;
+  cursor: pointer;
+  box-shadow: var(--sombra);
+  transition: background-color 0.3s ease;
+  width: 220px;
+}
+
+.btn:hover {
+  background-color: #cc5200;
+}
+
+.btn::placeholder {
+  color: #fff;
+}
+
+/* Calendario simulado */
+.calendario {
+  margin: 30px auto;
+  padding: 20px;
+  background-color: #fff;
+  border: 2px dashed var(--color-primario);
+  border-radius: var(--borde-redondo);
+  max-width: 500px;
+  color: var(--color-secundario);
+  font-size: 18px;
 }

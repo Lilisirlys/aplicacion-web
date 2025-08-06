@@ -1,13 +1,13 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import './index.css'; // Asegúrate de haber creado este archivo en src
-import App from './components/App'; // Corrige el nombre de la carpeta
+import App from './App';
+import './index.css';
+import { BrowserRouter } from 'react-router-dom';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
-  <React.StrictMode>
+  <BrowserRouter>
     <App />
-  </React.StrictMode>
+  </BrowserRouter>
 );
 
-// reportWebVitals eliminado porque no se está usando

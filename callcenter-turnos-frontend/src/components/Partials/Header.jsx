@@ -1,11 +1,11 @@
-import React from "react";
+import React from 'react';
 
-function Header(){
-    return(
-        <div>
-            <h1>Cabecera</h1>
-        </div>
-    )
+function Header() {
+  return (
+    <header className="header">
+      <h1>Jazzplat - Turnos Agentes</h1>
+    </header>
+  );
 }
 
 export default Header;
