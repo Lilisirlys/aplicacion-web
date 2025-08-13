@@ -1,18 +1,24 @@
-const express = require('express');
-const path = require('path');
+// server.js
+const express = require("express");
+const cors = require("cors");
+
 const app = express();
-const port = 3000;
+app.use(express.json());
 
-// 👉 Carpeta de archivos estáticos generados por React
-app.use(express.static(path.join(__dirname, 'callcenter-turnos-frontend/build')));
+// En desarrollo, permite llamadas desde el front en 3000
+app.use(cors({ origin: "http://localhost:3000" }));
 
-// 👉 Redireccionar cualquier ruta al index.html del build
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'callcenter-turnos-frontend/build', 'index.html'));
+// Login: acepta cualquier cédula + fecha y devuelve un "token"
+app.post("/api/login", (req, res) => {
+  const { cedula, fechaNacimiento } = req.body || {};
+  if (!cedula || !fechaNacimiento) {
+    return res.status(400).json({ message: "Completa cédula y fecha de nacimiento." });
+  }
+  const token = Buffer.from(`${cedula}:${fechaNacimiento}:${Date.now()}`).toString("base64");
+  res.json({ ok: true, token });
 });
 
-// 🚀 Inicia el servidor
-app.listen(port, () => {
-  console.log(`Servidor corriendo en http://localhost:${port}`);
-});
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => console.log(`Backend listo en http://localhost:${PORT}`));
+
 

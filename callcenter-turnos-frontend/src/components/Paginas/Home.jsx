@@ -1,63 +1,83 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 
-function Home() {
-  const [cedula, setCedula] = useState('');
-  const [turnosVisible, setTurnosVisible] = useState(false);
+export default function Home() {
+  const [cedula, setCedula] = useState("");
+  const [fechaNacimiento, setFechaNacimiento] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleConsultar = () => {
-    if (cedula.trim() === '') {
-      alert('Por favor ingresa tu número de cédula.');
+  async function onSubmit(e) {
+    e.preventDefault();
+    setError("");
+
+    if (!cedula.trim() || !fechaNacimiento) {
+      setError("Ingresa la cédula y la fecha de nacimiento.");
       return;
     }
-    setTurnosVisible(true);
-  };
 
-  const handleVolver = () => {
-    setTurnosVisible(false);
-    setCedula('');
-  };
+    setLoading(true);
+    try {
+      const resp = await fetch("/api/login", {              // ← gracias al proxy
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cedula: cedula.trim(),
+          // el input date ya viene como YYYY-MM-DD
+          fechaNacimiento,
+        }),
+      });
+
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.message || "Error al iniciar sesión");
+      }
+
+      const data = await resp.json();
+      localStorage.setItem("token", data.token);
+      localStorage.setItem("cedula", cedula.trim());
+      localStorage.setItem("fechaNacimiento", String(fechaNacimiento).slice(0, 10));
+      window.location.href = "/turnos";
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
-    <div className="home">
-      {!turnosVisible ? (
-        <>
-          <h2>Consulta tus turnos</h2>
-          <p>Ingresa tu número de cédula para ver tus turnos laborales.</p>
-          <div className="botones">
-            <input
-              type="text"
-              className="btn"
-              placeholder="Número de cédula"
-              value={cedula}
-              onChange={(e) => setCedula(e.target.value)}
-            />
-            <button className="btn" onClick={handleConsultar}>
-              Consultar
-            </button>
-          </div>
-        </>
-      ) : (
-        <>
-          <h2>Turnos del agente</h2>
-          <p><strong>Cédula:</strong> {cedula}</p>
+    <div style={{ maxWidth: 380, margin: "40px auto" }}>
+      <h2>Ingresar</h2>
+      <form onSubmit={onSubmit}>
+        <label style={{ display: "block", marginBottom: 8 }}>
+          Cédula
+          <input
+            type="text"
+            inputMode="numeric"
+            value={cedula}
+            onChange={(e) => setCedula(e.target.value)}
+            placeholder="Ej: 1022345134"
+            style={{ width: "100%", padding: 8, marginTop: 4 }}
+          />
+        </label>
 
-          {/* Aquí puede ir el calendario o una lista de turnos */}
-          <div className="calendario">
-            <p>[ Calendario de turnos simulados aquí 🗓️ ]</p>
-          </div>
+        <label style={{ display: "block", marginBottom: 8 }}>
+          Fecha de nacimiento
+          <input
+            type="date"
+            value={fechaNacimiento}
+            onChange={(e) => setFechaNacimiento(e.target.value)}
+            max={new Date().toISOString().split("T")[0]}
+            required
+            style={{ width: "100%", padding: 8, marginTop: 4 }}
+          />
+        </label>
 
-          <div className="botones">
-            <button className="btn" onClick={handleVolver}>
-              Volver
-            </button>
-            <button className="btn">
-              Cerrar sesión
-            </button>
-          </div>
-        </>
-      )}
+        {error && <p style={{ color: "crimson" }}>{error}</p>}
+
+        <button type="submit" disabled={loading} style={{ padding: 10, width: "100%" }}>
+          {loading ? "Enviando..." : "Entrar"}
+        </button>
+      </form>
     </div>
   );
 }
-
-export default Home;
