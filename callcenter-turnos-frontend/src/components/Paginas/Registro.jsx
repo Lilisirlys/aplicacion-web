@@ -1,109 +1,128 @@
 // src/components/Paginas/Registro.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+
+const API = 'http://localhost:5000'; // backend (server.js) debe estar escuchando aquí
 
 export default function Registro() {
+  // 🔎 Log al montar el componente (debe verse en la consola del navegador)
+  useEffect(() => {
+    console.log('Registro.jsx LOADED');
+    console.log('API_BASE =', API);
+  }, []);
+
   const [cedula, setCedula] = useState('');
-  const [fecha, setFecha] = useState('');       // puede venir como "YYYY-MM-DD" (date) o "DD/MM/YYYY"
+  const [fecha, setFecha] = useState('');   // <input type="date"> -> YYYY-MM-DD
   const [cargando, setCargando] = useState(false);
-  const [error, setError] = useState('');
-  const [resultado, setResultado] = useState(null); // { nombre, turno }
+  const [mensaje, setMensaje] = useState('');
+  const [agente, setAgente] = useState(null);
 
-  // Normaliza a YYYY-MM-DD
-  const toSqlDate = (raw) => {
-    if (!raw) return '';
-    const s = raw.trim();
-
-    // Ya está en YYYY-MM-DD (input type="date")
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-
-    // DD/MM/YYYY
-    const m1 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (m1) {
-      const [, d, m, y] = m1;
-      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
-    }
-
-    // DD-MM-YYYY
-    const m2 = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
-    if (m2) {
-      const [, d, m, y] = m2;
-      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
-    }
-
-    // Si llega en otro formato, lo devolvemos tal cual (deja que el backend falle con mensaje)
-    return s;
+  // Solo números en cédula
+  const onCedula = (e) => {
+    const v = e.target.value.replace(/\D/g, '').trim();
+    setCedula(v);
   };
 
   const onSubmit = async (e) => {
     e.preventDefault();
-    setError('');
-    setResultado(null);
-    setCargando(true);
+    setMensaje('');
+    setAgente(null);
+
+    if (!cedula) return setMensaje('Ingresa la cédula.');
+    if (!fecha) return setMensaje('Selecciona la fecha de nacimiento.');
 
     try {
-      const fechaSql = toSqlDate(fecha); // <-- normalización aquí
-      const resp = await fetch('/api/buscar-turno', {
+      setCargando(true);
+
+      // Debug útil
+      console.log('Enviando a API:', { cedula, fecha_nacimiento: fecha });
+
+      const resp = await fetch(`${API}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cedula: cedula.trim(),
-          fecha_nacimiento: fechaSql
-        })
+        body: JSON.stringify({ cedula, fecha_nacimiento: fecha }) // YYYY-MM-DD
       });
 
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || 'Error al iniciar sesión');
+      // Intenta parsear JSON; si no, cae a texto
+      let data = {};
+      const ct = resp.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        try { data = await resp.json(); } catch {}
+      } else {
+        data.message = await resp.text();
+      }
 
-      setResultado(data); // { nombre, turno }
+      console.log('Respuesta API:', resp.status, data);
+
+      if (!resp.ok || !data.ok) {
+        if (resp.status === 401) return setMensaje('Credenciales inválidas');
+        if (resp.status === 400) return setMensaje(data.message || 'Solicitud inválida');
+        if (resp.status === 500) return setMensaje('Error del servidor');
+        return setMensaje(data.message || `Error al iniciar sesión (HTTP ${resp.status})`);
+      }
+
+      setAgente(data.agente);
+      setMensaje('¡Ingreso exitoso!');
     } catch (err) {
-      setError(err.message);
+      console.error('Error de red:', err);
+      setMensaje('No se pudo conectar con la API.');
     } finally {
       setCargando(false);
     }
   };
 
   return (
-    <div style={{ maxWidth: 560, margin: '2rem auto', padding: 16 }}>
+    <div style={{ maxWidth: 500, margin: '2rem auto', padding: 16 }}>
       <h2>Ingresar</h2>
+      <form onSubmit={onSubmit}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <label>
+            Cédula
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="Solo números"
+              value={cedula}
+              onChange={onCedula}
+              maxLength={20}
+              required
+              style={{ width: '100%', padding: 8 }}
+            />
+          </label>
 
-      <form onSubmit={onSubmit} style={{ display: 'grid', gap: 12 }}>
-        <div>
-          <label>Cédula</label>
-          <input
-            value={cedula}
-            onChange={(e) => setCedula(e.target.value)}
-            placeholder="111506305"
-            required
-            style={{ width: '100%', padding: 8 }}
-          />
+          <label>
+            Fecha de nacimiento
+            <input
+              type="date"               // devuelve YYYY-MM-DD
+              value={fecha}
+              onChange={(e) => setFecha(e.target.value)}
+              required
+              style={{ width: '100%', padding: 8 }}
+            />
+          </label>
+
+          <button
+            type="submit"
+            disabled={cargando}
+            style={{ padding: 10, fontWeight: 600 }}
+          >
+            {cargando ? 'Consultando...' : 'Entrar'}
+          </button>
         </div>
-
-        <div>
-          <label>Fecha de nacimiento</label>
-          {/* Puedes cambiar type="date" por type="text" si prefieres escribir 11/08/1980 */}
-          <input
-            type="date"
-            value={fecha}
-            onChange={(e) => setFecha(e.target.value)}
-            required
-            style={{ width: '100%', padding: 8 }}
-          />
-          {/* Si prefieres texto libre: 
-            <input type="text" placeholder="DD/MM/YYYY o YYYY-MM-DD" ... />
-          */}
-        </div>
-
-        <button type="submit" disabled={cargando} style={{ padding: 10 }}>
-          {cargando ? 'Consultando...' : 'Entrar'}
-        </button>
-
-        {error && <p style={{ color: 'crimson' }}>{error}</p>}
-        {resultado && (
-          <div style={{ marginTop: 8, background: '#f6f6f6', padding: 10 }}>
-            <strong>{resultado.nombre}</strong> — Turno: {resultado.turno}
-          </div>
-        )}
       </form>
+
+      {mensaje && (
+        <p style={{ marginTop: 12, color: mensaje.includes('exitoso') ? 'green' : 'crimson' }}>
+          {mensaje}
+        </p>
+      )}
+
+      {agente && (
+        <div style={{ marginTop: 16, border: '1px solid #ddd', padding: 12, borderRadius: 6 }}>
+          <p><b>Cédula:</b> {agente.cedula}</p>
+          <p><b>Nombre:</b> {agente.nombres} {agente.apellidos}</p>
+          <p><b>Turno:</b> {agente.turno}</p>
+        </div>
+      )}
     </div>
   );
 }
