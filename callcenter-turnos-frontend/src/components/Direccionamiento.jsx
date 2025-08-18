@@ -1,31 +1,30 @@
 import React from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import Home from "./Paginas/Home";
-import Registro from "./Paginas/Registro"; // aquí muestras los turnos
+import Registro from "./Paginas/Registro"; // tu pantalla que lista turnos
 
 function isAuthenticated() {
-  return !!localStorage.getItem("token");
+  // acepta token o cédula guardada tras el login
+  return !!(localStorage.getItem("token") || localStorage.getItem("cedula"));
 }
 
 function RutaProtegida({ children }) {
-  return isAuthenticated() ? children : <Navigate to="/login" replace />;
+  return isAuthenticated() ? children : <Navigate to="/" replace />;
 }
 
 export default function Direccionamiento() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/login" element={<Home />} />
-        <Route
-          path="/turnos"
-          element={
-            <RutaProtegida>
-              <Registro />
-            </RutaProtegida>
-          }
-        />
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
-    </BrowserRouter>
+    <Routes>
+      <Route path="/" element={<Home />} />
+      <Route
+        path="/turnos"
+        element={
+          <RutaProtegida>
+            <Registro />
+          </RutaProtegida>
+        }
+      />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }

@@ -1,83 +1,90 @@
-// server.js (raíz del proyecto)
-// Backend: Node/Express + mysql2/promise
+// server.js
 const express = require('express');
+const mysql = require('mysql2');
 const cors = require('cors');
-const mysql = require('mysql2/promise');
 
 const app = express();
-app.use(cors({ origin: ['http://localhost:3000'] }));
+
+// Si usas el proxy del frontend (http://localhost:3000) esto está bien
+app.use(cors({ origin: 'http://localhost:3000' }));
 app.use(express.json());
 
-// ---------- DB ----------
-const pool = mysql.createPool({
+// Usa un puerto distinto a Apache/phpMyAdmin (que suelen usar 8012)
+const PORT = 8013;
+
+// Conexión MySQL (XAMPP)
+const db = mysql.createConnection({
   host: 'localhost',
   user: 'root',
-  password: '',
-  database: 'turnos_trabajo',   // <-- tu BD según phpMyAdmin
+  password: '',                // por defecto en XAMPP
+  database: 'turnos_trabajo',
   port: 3306,
-  connectionLimit: 10
+  dateStrings: true            // fechas como 'YYYY-MM-DD'
 });
 
-// ---------- helpers ----------
-function toYYYYMMDD(input) {
-  if (!input) return null;
-  const s = String(input).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;                // YYYY-MM-DD
-  const m = s.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/);     // DD/MM/YYYY o DD-MM-YYYY
-  if (!m) return null;
-  return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+db.connect(err => {
+  if (err) { console.error('❌ MySQL:', err); return; }
+  console.log('✅ Conectado a MySQL');
+});
+
+// Normaliza a YYYY-MM-DD (acepta dd/mm/aaaa o dd-mm-aaaa)
+function toYYYYMMDD(s) {
+  if (!s) return '';
+  const str = String(s).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  const m = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  if (!m) return '';
+  const d = m[1].padStart(2, '0');
+  const M = m[2].padStart(2, '0');
+  let Y = m[3];
+  if (Y.length === 2) Y = (parseInt(Y,10) > 50 ? '19' : '20') + Y;
+  return `${Y}-${M}-${d}`;
 }
 
-// ---------- health ----------
-app.get('/api/health', async (_req, res) => {
-  try { await pool.query('SELECT 1'); res.json({ ok: true, db: 'up' }); }
-  catch (e) { res.status(500).json({ ok: false, db: 'down', error: e.message }); }
-});
+// 🔐 Login: valida cédula + fecha_nacimiento en 'agentes'
+app.post('/api/login', (req, res) => {
+  const { cedula, fecha_nacimiento } = req.body || {};
+  const fechaNorm = toYYYYMMDD(fecha_nacimiento);
 
-// ---------- login ----------
-app.post('/api/login', async (req, res) => {
-  try {
-    let { cedula, fecha_nacimiento } = req.body ?? {};
-    console.log('POST /api/login body:', req.body);
-
-    if (!cedula || !fecha_nacimiento) {
-      return res.status(400).json({ ok: false, message: 'Faltan datos' });
-    }
-    const fecha = toYYYYMMDD(fecha_nacimiento);
-    if (!fecha) return res.status(400).json({ ok: false, message: 'Fecha inválida' });
-
-    // columnas reales de tu tabla agentes (ver captura)
-    const [rows] = await pool.execute(
-      `SELECT
-          cedula,
-          nombre       AS nombres,
-          apellido     AS apellidos,
-          tipo_turno   AS turno,
-          fecha_turno,
-          hora_inicio,
-          hora_fin,
-          sede,
-          area,
-          estado
-        FROM agentes
-        WHERE cedula = ? AND fecha_nacimiento = ?
-        LIMIT 1`,
-      [String(cedula), fecha]
-    );
-
-    if (rows.length === 0) {
-      return res.status(401).json({ ok: false, message: 'Credenciales inválidas' });
-    }
-
-    return res.json({ ok: true, agente: rows[0] });
-  } catch (err) {
-    console.error('ERROR /api/login =>', err);
-    res.status(500).json({ ok: false, message: 'Error interno' });
+  if (!cedula || !fechaNorm) {
+    return res.status(400).json({ ok:false, msg:'Faltan datos' });
   }
+
+  const sql = `
+    SELECT id, cedula, nombre, apellido, fecha_nacimiento
+    FROM agentes
+    WHERE cedula = ? AND fecha_nacimiento = ?
+    LIMIT 1
+  `;
+  db.query(sql, [cedula, fechaNorm], (err, rows) => {
+    if (err) { console.error('SQL /api/login', err); return res.status(500).json({ ok:false, msg:'Error DB' }); }
+    if (rows.length === 0) return res.status(401).json({ ok:false, msg:'Credenciales inválidas' });
+    res.json({ ok:true, agente: rows[0] });
+  });
 });
 
-// ---------- puerto API (NO usar 8012) ----------
-const PORT = 5000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 API en http://localhost:${PORT}`);
+// 📅 Turnos por cédula (MISMA TABLA 'agentes')
+app.get('/api/turnos', (req, res) => {
+  const { cedula } = req.query;
+  if (!cedula) return res.status(400).json({ ok:false, msg:'Falta cédula' });
+
+  const sql = `
+    SELECT id, fecha_turno, hora_inicio, hora_fin, tipo_turno, sede, area, estado
+    FROM agentes
+    WHERE cedula = ?
+    ORDER BY fecha_turno DESC
+    LIMIT 50
+  `;
+  db.query(sql, [cedula], (err, rows) => {
+    if (err) { console.error('SQL /api/turnos', err); return res.status(500).json({ ok:false, msg:'Error DB' }); }
+    res.json({ ok:true, turnos: rows });
+  });
+});
+
+// Healthcheck
+app.get('/health', (_, res) => res.send('OK'));
+
+app.listen(PORT, () => {
+  console.log(`🚀 API escuchando en http://localhost:${PORT}`);
+  console.log(`🩺 Healthcheck: http://localhost:${PORT}/health`);
 });

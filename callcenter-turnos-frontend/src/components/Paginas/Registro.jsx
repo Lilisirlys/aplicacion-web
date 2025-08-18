@@ -1,126 +1,82 @@
 // src/components/Paginas/Registro.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
-const API = 'http://localhost:5000'; // backend (server.js) debe estar escuchando aquí
+// Usa el proxy del frontend (package.json -> "proxy": "http://localhost:8013")
+const API = ""; // si quieres saltarte el proxy: "http://localhost:8013"
 
 export default function Registro() {
-  // 🔎 Log al montar el componente (debe verse en la consola del navegador)
+  const [turnos, setTurnos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const navigate = useNavigate();
+
+  // 👇 Aquí va el useEffect que consultará /api/turnos con la cédula del login
   useEffect(() => {
-    console.log('Registro.jsx LOADED');
-    console.log('API_BASE =', API);
-  }, []);
-
-  const [cedula, setCedula] = useState('');
-  const [fecha, setFecha] = useState('');   // <input type="date"> -> YYYY-MM-DD
-  const [cargando, setCargando] = useState(false);
-  const [mensaje, setMensaje] = useState('');
-  const [agente, setAgente] = useState(null);
-
-  // Solo números en cédula
-  const onCedula = (e) => {
-    const v = e.target.value.replace(/\D/g, '').trim();
-    setCedula(v);
-  };
-
-  const onSubmit = async (e) => {
-    e.preventDefault();
-    setMensaje('');
-    setAgente(null);
-
-    if (!cedula) return setMensaje('Ingresa la cédula.');
-    if (!fecha) return setMensaje('Selecciona la fecha de nacimiento.');
-
-    try {
-      setCargando(true);
-
-      // Debug útil
-      console.log('Enviando a API:', { cedula, fecha_nacimiento: fecha });
-
-      const resp = await fetch(`${API}/api/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cedula, fecha_nacimiento: fecha }) // YYYY-MM-DD
-      });
-
-      // Intenta parsear JSON; si no, cae a texto
-      let data = {};
-      const ct = resp.headers.get('content-type') || '';
-      if (ct.includes('application/json')) {
-        try { data = await resp.json(); } catch {}
-      } else {
-        data.message = await resp.text();
-      }
-
-      console.log('Respuesta API:', resp.status, data);
-
-      if (!resp.ok || !data.ok) {
-        if (resp.status === 401) return setMensaje('Credenciales inválidas');
-        if (resp.status === 400) return setMensaje(data.message || 'Solicitud inválida');
-        if (resp.status === 500) return setMensaje('Error del servidor');
-        return setMensaje(data.message || `Error al iniciar sesión (HTTP ${resp.status})`);
-      }
-
-      setAgente(data.agente);
-      setMensaje('¡Ingreso exitoso!');
-    } catch (err) {
-      console.error('Error de red:', err);
-      setMensaje('No se pudo conectar con la API.');
-    } finally {
-      setCargando(false);
+    const c = localStorage.getItem("cedula");
+    if (!c) {
+      // si no hay login, vuelve al inicio
+      navigate("/");
+      return;
     }
+
+    setLoading(true);
+    fetch(`${API}/api/turnos?cedula=${encodeURIComponent(c)}`)
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || data.ok === false) {
+          throw new Error(data.msg || `Error (HTTP ${r.status})`);
+        }
+        setTurnos(Array.isArray(data.turnos) ? data.turnos : []);
+      })
+      .catch((err) => setError(err.message || "Error consultando turnos"))
+      .finally(() => setLoading(false));
+  }, [navigate]);
+
+  const logout = () => {
+    localStorage.clear();
+    navigate("/");
   };
 
   return (
-    <div style={{ maxWidth: 500, margin: '2rem auto', padding: 16 }}>
-      <h2>Ingresar</h2>
-      <form onSubmit={onSubmit}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <label>
-            Cédula
-            <input
-              type="text"
-              inputMode="numeric"
-              placeholder="Solo números"
-              value={cedula}
-              onChange={onCedula}
-              maxLength={20}
-              required
-              style={{ width: '100%', padding: 8 }}
-            />
-          </label>
+    <div style={{ maxWidth: 1000, margin: "20px auto", padding: "0 12px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h2>Mis turnos</h2>
+        <button onClick={logout}>Cerrar sesión</button>
+      </div>
 
-          <label>
-            Fecha de nacimiento
-            <input
-              type="date"               // devuelve YYYY-MM-DD
-              value={fecha}
-              onChange={(e) => setFecha(e.target.value)}
-              required
-              style={{ width: '100%', padding: 8 }}
-            />
-          </label>
+      {loading && <p>Cargando…</p>}
+      {error && <p style={{ color: "crimson" }}>{error}</p>}
+      {!loading && !error && turnos.length === 0 && <p>No hay turnos para mostrar.</p>}
 
-          <button
-            type="submit"
-            disabled={cargando}
-            style={{ padding: 10, fontWeight: 600 }}
-          >
-            {cargando ? 'Consultando...' : 'Entrar'}
-          </button>
-        </div>
-      </form>
-
-      {mensaje && (
-        <p style={{ marginTop: 12, color: mensaje.includes('exitoso') ? 'green' : 'crimson' }}>
-          {mensaje}
-        </p>
-      )}
-
-      {agente && (
-        <div style={{ marginTop: 16, border: '1px solid #ddd', padding: 12, borderRadius: 6 }}>
-          <p><b>Cédula:</b> {agente.cedula}</p>
-          <p><b>Nombre:</b> {agente.nombres} {agente.apellidos}</p>
-          <p><b>Turno:</b> {agente.turno}</p>
+      {!loading && !error && turnos.length > 0 && (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: 8 }}>Fecha</th>
+                <th style={{ textAlign: "left", padding: 8 }}>Inicio</th>
+                <th style={{ textAlign: "left", padding: 8 }}>Fin</th>
+                <th style={{ textAlign: "left", padding: 8 }}>Tipo</th>
+                <th style={{ textAlign: "left", padding: 8 }}>Sede</th>
+                <th style={{ textAlign: "left", padding: 8 }}>Área</th>
+                <th style={{ textAlign: "left", padding: 8 }}>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {turnos.map((t) => (
+                <tr key={t.id}>
+                  <td style={{ padding: 8 }}>{t.fecha_turno?.slice(0, 10)}</td>
+                  <td style={{ padding: 8 }}>{t.hora_inicio?.slice(0, 5)}</td>
+                  <td style={{ padding: 8 }}>{t.hora_fin?.slice(0, 5)}</td>
+                  <td style={{ padding: 8 }}>{t.tipo_turno}</td>
+                  <td style={{ padding: 8 }}>{t.sede}</td>
+                  <td style={{ padding: 8 }}>{t.area}</td>
+                  <td style={{ padding: 8 }}>{t.estado}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

@@ -1,24 +1,43 @@
 // src/components/Paginas/Home.jsx
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 
-const API = "http://localhost:5000"; // tu backend
+// Usa el proxy del frontend: package.json -> "proxy": "http://localhost:8013"
+const API = ""; // si quieres saltarte el proxy: "http://localhost:8013"
+
+// Normaliza a YYYY-MM-DD (acepta YYYY-MM-DD, dd/mm/aaaa, dd-mm-aaaa)
+function toYYYYMMDD(s) {
+  if (!s) return "";
+  const str = String(s).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  const m = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+  if (!m) return "";
+  const d = m[1].padStart(2, "0");
+  const M = m[2].padStart(2, "0");
+  let Y = m[3];
+  if (Y.length === 2) Y = (parseInt(Y, 10) > 50 ? "19" : "20") + Y;
+  return `${Y}-${M}-${d}`;
+}
 
 export default function Home() {
   const [cedula, setCedula] = useState("");
-  const [fechaNacimiento, setFechaNacimiento] = useState(""); // <input type="date"> -> YYYY-MM-DD
+  const [fechaNacimiento, setFechaNacimiento] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const navigate = useNavigate();
 
   useEffect(() => {
-    console.log("Home.jsx LOADED | API =", API);
+    console.log("Home.jsx cargado. API base =", API || "(proxy)");
   }, []);
 
   async function onSubmit(e) {
     e.preventDefault();
+    if (loading) return;
+
     setError("");
 
     const ced = cedula.trim();
-    const fecha = String(fechaNacimiento).slice(0, 10); // asegura YYYY-MM-DD
+    const fecha = toYYYYMMDD(fechaNacimiento);
 
     if (!ced || !fecha) {
       setError("Ingresa la cédula y la fecha de nacimiento.");
@@ -28,46 +47,37 @@ export default function Home() {
     try {
       setLoading(true);
 
-      // DEBUG: ver en consola lo que se envía
-      console.log("POST", `${API}/api/login`, { cedula: ced, fecha_nacimiento: fecha });
-
       const resp = await fetch(`${API}/api/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cedula: ced,
-          fecha_nacimiento: fecha, // <-- nombre que espera el backend
-        }),
+        body: JSON.stringify({ cedula: ced, fecha_nacimiento: fecha }),
       });
 
-      // intenta leer JSON; si no hay JSON, toma texto
       let data = {};
       const ct = resp.headers.get("content-type") || "";
       if (ct.includes("application/json")) {
         try { data = await resp.json(); } catch {}
       } else {
-        data.message = await resp.text();
+        data = { msg: await resp.text() };
       }
-
-      console.log("RESP", resp.status, data);
 
       if (!resp.ok || data.ok === false) {
         if (resp.status === 401) throw new Error("Credenciales inválidas");
-        if (resp.status === 400) throw new Error(data.message || "Solicitud inválida");
+        if (resp.status === 400) throw new Error(data.msg || "Solicitud inválida");
         if (resp.status === 500) throw new Error("Error del servidor");
-        throw new Error(data.message || `Error (HTTP ${resp.status})`);
+        throw new Error(data.msg || `Error (HTTP ${resp.status})`);
       }
 
-      // Guarda lo que tengas (token opcional, depende de tu API)
+      // Guarda datos útiles
       if (data.token) localStorage.setItem("token", data.token);
+      if (data.agente) localStorage.setItem("agente", JSON.stringify(data.agente));
       localStorage.setItem("cedula", ced);
       localStorage.setItem("fechaNacimiento", fecha);
 
-      // si tu API devuelve agente:
-      if (data.agente) localStorage.setItem("agente", JSON.stringify(data.agente));
-
-      // redirige donde necesites
-      window.location.href = "/turnos";
+      // 👉 Redirige a /turnos (SPA)
+      navigate("/turnos"); 
+      // Si prefieres recarga completa, usa:
+      // window.location.href = "/turnos";
     } catch (err) {
       console.error(err);
       setError(err.message || "No se pudo iniciar sesión.");
@@ -77,11 +87,10 @@ export default function Home() {
   }
 
   return (
-    <div style={{ maxWidth: 380, margin: "40px auto" }}>
+    <div style={{ maxWidth: 420, margin: "40px auto", padding: "8px" }}>
       <h2>Ingresar</h2>
 
-      {/* IMPORTANTE: sin action; el fetch maneja el envío */}
-      <form onSubmit={onSubmit}>
+      <form onSubmit={onSubmit} autoComplete="off" noValidate>
         <label style={{ display: "block", marginBottom: 8 }}>
           Cédula
           <input
@@ -109,7 +118,11 @@ export default function Home() {
 
         {error && <p style={{ color: "crimson", marginTop: 6 }}>{error}</p>}
 
-        <button type="submit" disabled={loading} style={{ padding: 10, width: "100%", marginTop: 8 }}>
+        <button
+          type="submit"
+          disabled={loading}
+          style={{ padding: 10, width: "100%", marginTop: 8, cursor: loading ? "not-allowed" : "pointer" }}
+        >
           {loading ? "Enviando..." : "Entrar"}
         </button>
       </form>
