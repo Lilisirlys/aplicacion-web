@@ -2,10 +2,9 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
-// Usa el proxy del frontend: package.json -> "proxy": "http://localhost:8013"
-const API = ""; // si quieres saltarte el proxy: "http://localhost:8013"
+// Usa el proxy de CRA: siempre rutas relativas "/api/...".
+const API = ""; // si algún día necesitas saltarte el proxy: "http://localhost:8013"
 
-// Normaliza a YYYY-MM-DD (acepta YYYY-MM-DD, dd/mm/aaaa, dd-mm-aaaa)
 function toYYYYMMDD(s) {
   if (!s) return "";
   const str = String(s).trim();
@@ -28,36 +27,34 @@ export default function Home() {
 
   useEffect(() => {
     console.log("Home.jsx cargado. API base =", API || "(proxy)");
-  }, []);
+    // Si ya hay sesión, manda directo a calendario
+    const ag = localStorage.getItem("agente");
+    if (ag) navigate("/calendario");
+  }, [navigate]);
+
+  const formInvalido = !cedula.trim() || !toYYYYMMDD(fechaNacimiento);
 
   async function onSubmit(e) {
     e.preventDefault();
-    if (loading) return;
-
+    if (loading || formInvalido) return;
     setError("");
 
     const ced = cedula.trim();
     const fecha = toYYYYMMDD(fechaNacimiento);
 
-    if (!ced || !fecha) {
-      setError("Ingresa la cédula y la fecha de nacimiento.");
-      return;
-    }
-
     try {
       setLoading(true);
 
-      const resp = await fetch(`${API}/api/login`, {
+      const resp = await fetch(`/api/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cedula: ced, fecha_nacimiento: fecha }),
       });
 
-      let data = {};
-      const ct = resp.headers.get("content-type") || "";
-      if (ct.includes("application/json")) {
-        try { data = await resp.json(); } catch {}
-      } else {
+      let data;
+      try {
+        data = await resp.clone().json();
+      } catch {
         data = { msg: await resp.text() };
       }
 
@@ -68,16 +65,17 @@ export default function Home() {
         throw new Error(data.msg || `Error (HTTP ${resp.status})`);
       }
 
-      // Guarda datos útiles
       if (data.token) localStorage.setItem("token", data.token);
       if (data.agente) localStorage.setItem("agente", JSON.stringify(data.agente));
       localStorage.setItem("cedula", ced);
       localStorage.setItem("fechaNacimiento", fecha);
 
-      // 👉 Redirige a /turnos (SPA)
-      navigate("/turnos"); 
-      // Si prefieres recarga completa, usa:
-      // window.location.href = "/turnos";
+      // Limpia inputs (opcional)
+      setCedula("");
+      setFechaNacimiento("");
+
+      // 👉 Redirige al calendario
+      navigate("/calendario");
     } catch (err) {
       console.error(err);
       setError(err.message || "No se pudo iniciar sesión.");
@@ -87,17 +85,20 @@ export default function Home() {
   }
 
   return (
-    <div style={{ maxWidth: 420, margin: "40px auto", padding: "8px" }}>
+    <div style={{ maxWidth: 420, margin: "40px auto", padding: 8 }}>
       <h2>Ingresar</h2>
 
       <form onSubmit={onSubmit} autoComplete="off" noValidate>
         <label style={{ display: "block", marginBottom: 8 }}>
           Cédula
           <input
-            type="text"
+            type="tel"
             inputMode="numeric"
             value={cedula}
-            onChange={(e) => setCedula(e.target.value.replace(/\D/g, ""))}
+            onChange={(e) => {
+              setCedula(e.target.value.replace(/\D/g, ""));
+              if (error) setError("");
+            }}
             placeholder="Ej: 1022345134"
             style={{ width: "100%", padding: 8, marginTop: 4 }}
             required
@@ -109,7 +110,10 @@ export default function Home() {
           <input
             type="date"
             value={fechaNacimiento}
-            onChange={(e) => setFechaNacimiento(e.target.value)}
+            onChange={(e) => {
+              setFechaNacimiento(e.target.value);
+              if (error) setError("");
+            }}
             max={new Date().toISOString().split("T")[0]}
             required
             style={{ width: "100%", padding: 8, marginTop: 4 }}
@@ -120,8 +124,13 @@ export default function Home() {
 
         <button
           type="submit"
-          disabled={loading}
-          style={{ padding: 10, width: "100%", marginTop: 8, cursor: loading ? "not-allowed" : "pointer" }}
+          disabled={loading || formInvalido}
+          style={{
+            padding: 10,
+            width: "100%",
+            marginTop: 8,
+            cursor: loading ? "not-allowed" : "pointer",
+          }}
         >
           {loading ? "Enviando..." : "Entrar"}
         </button>
