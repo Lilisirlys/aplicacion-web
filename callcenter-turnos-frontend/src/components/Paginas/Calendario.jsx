@@ -1,5 +1,5 @@
 // src/components/Paginas/Calendario.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import DatePicker, { registerLocale } from "react-datepicker";
 import es from "date-fns/locale/es";
@@ -13,167 +13,320 @@ const ymd = (d) =>
     .toISOString()
     .slice(0, 10);
 
-const fmtTime = (t) => (t ? t.slice(0, 5) : "—");
+// ✅ fmtTime mejorado
+const fmtTime = (t) => (t && typeof t === "string" ? t.slice(0, 5) : "—");
+
+const addDays = (d, n) => {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  return x;
+};
+
+const daysBetween = (start, end) => {
+  const out = [];
+  for (let d = new Date(start); d <= end; d = addDays(d, 1)) out.push(new Date(d));
+  return out;
+};
+
+const API_URL = process.env.REACT_APP_API_URL || "http://localhost:3001";
 
 export default function Calendario() {
   const navigate = useNavigate();
 
   // Identidad del asesor
   const agente = (() => {
-    try { return JSON.parse(localStorage.getItem("agente")); } catch { return null; }
+    try {
+      return JSON.parse(localStorage.getItem("agente"));
+    } catch {
+      return null;
+    }
   })();
   const cedula = agente?.cedula || localStorage.getItem("cedula") || "";
 
-  // Estado UI
-  const [fechasSel, setFechasSel] = useState([new Date()]); // selección múltiple (1..N)
+  // --- Estado UI ---
+  const [modo, setModo] = useState("dia"); // "dia" | "rango"
+  const [fecha, setFecha] = useState(new Date()); // modo día
+  const [rango, setRango] = useState([null, null]); // modo rango
   const [loading, setLoading] = useState(false);
+  const [turnos, setTurnos] = useState([]);
   const [error, setError] = useState("");
-  const [turnosPorDia, setTurnosPorDia] = useState({}); // { 'YYYY-MM-DD': [turnos...] }
 
-  // Cargar turnos de un array de fechas
-  async function loadDays(dates) {
-    if (!cedula || !dates?.length) return;
+  const [startDate, endDate] = rango;
 
-    const uniqueKeys = [...new Set(dates.map(ymd))]; // evita repetidos
-    setLoading(true);
+  useEffect(() => {
+    if (!cedula) {
+      // navigate("/"); // descomenta si tu app debe forzar login
+    }
+  }, [cedula, navigate]);
+
+  async function cargarDia(d) {
     setError("");
+    setTurnos([]);
+    if (!cedula) {
+      setError("No se encontró la cédula del agente (revisa el login/localStorage).");
+      return;
+    }
+    setLoading(true);
+    const f = ymd(d);
     try {
-      const results = {};
-      // pide cada día (sencillo y claro). Si luego quieres, hago un endpoint por rango.
-      for (const key of uniqueKeys) {
-        const resp = await fetch(`/api/turnos/dia?cedula=${encodeURIComponent(cedula)}&fecha=${key}`);
-        let data;
-        try { data = await resp.clone().json(); } catch { data = { ok: false, msg: await resp.text() }; }
-        if (!resp.ok || data.ok === false) {
-          throw new Error(data.msg || `Error obteniendo ${key} (HTTP ${resp.status})`);
-        }
-        results[key] = data.turnos || [];
-      }
-      setTurnosPorDia(results);
+      const res = await fetch(
+        `${API_URL}/api/turnos/dia?cedula=${encodeURIComponent(cedula)}&fecha=${f}`
+      );
+      if (!res.ok) throw new Error("Respuesta no OK");
+      const data = await res.json();
+      const arr = Array.isArray(data) ? data : data?.turnos || [];
+      setTurnos(arr);
     } catch (e) {
       console.error(e);
-      setTurnosPorDia({});
-      setError(e.message || "No se pudieron cargar los turnos.");
+      setError("No se pudieron cargar los turnos del día.");
     } finally {
       setLoading(false);
     }
   }
 
-  // Al montar: si no hay cedula, vuelve a login. Carga el día actual.
-  useEffect(() => {
+  async function cargarRango(s, e) {
+    setError("");
+    setTurnos([]);
     if (!cedula) {
-      navigate("/");
+      setError("No se encontró la cédula del agente (revisa el login/localStorage).");
       return;
     }
-    loadDays(fechasSel);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cedula]);
+    if (!s || !e) {
+      setError("Selecciona un rango válido.");
+      return;
+    }
+    setLoading(true);
+    const desde = ymd(s);
+    const hasta = ymd(e);
 
-  // cuando el usuario cambia la selección en el calendario
-  const onChangeDates = (dates) => {
-    // en "selectsRange" recibes [start, end]; en "selectMultiple" recibes array
-    // Usaremos múltiples fechas manualmente: si dates no es array, lo hacemos array.
-    const arr = Array.isArray(dates) ? dates.filter(Boolean) : [dates].filter(Boolean);
-    setFechasSel(arr.length ? arr : [new Date()]);
-    loadDays(arr.length ? arr : [new Date()]);
-  };
+    try {
+      // 1) Intento /api/turnos/rango si existe
+      const urlRango = `${API_URL}/api/turnos/rango?cedula=${encodeURIComponent(
+        cedula
+      )}&desde=${desde}&hasta=${hasta}`;
+      const r1 = await fetch(urlRango);
+      if (r1.ok) {
+        const data = await r1.json();
+        const arr = Array.isArray(data) ? data : data?.turnos || [];
+        setTurnos(arr);
+        return;
+      }
 
-  // Render
+      // 2) Fallback: día a día con /api/turnos/dia
+      const fechas = daysBetween(s, e).map(ymd);
+      const peticiones = fechas.map((f) =>
+        fetch(
+          `${API_URL}/api/turnos/dia?cedula=${encodeURIComponent(cedula)}&fecha=${f}`
+        ).then((res) => (res.ok ? res.json() : []))
+      );
+      const porDia = await Promise.all(peticiones);
+
+      const combinados = porDia
+        .flatMap((x) => (Array.isArray(x) ? x : x?.turnos || []))
+        .filter(Boolean);
+
+      setTurnos(combinados);
+    } catch (err) {
+      console.error(err);
+      setError("No se pudieron cargar los turnos del rango.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Agrupa por fecha para mostrar bonito en ambos modos
+  const agrupados = useMemo(() => {
+    const g = {};
+    for (const t of turnos) {
+      const f = t.fecha || t.fecha_turno || t.dia || t.date || "—";
+      (g[f] = g[f] || []).push(t);
+    }
+    return g;
+  }, [turnos]);
+
   return (
-    <div style={{ maxWidth: 1100, margin: "30px auto", padding: "0 12px" }}>
-      <h2 style={{ margin: "0 0 12px" }}>Calendario de turnos</h2>
+    <div style={{ maxWidth: 980, margin: "24px auto", padding: "0 16px" }}>
+      <h2 style={{ marginBottom: 12 }}>Calendario de turnos</h2>
 
-      <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 24 }}>
-        <div>
+      {/* Selector de modo */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <button onClick={() => setModo("dia")} style={btn(modo === "dia")}>
+          Por día
+        </button>
+        <button onClick={() => setModo("rango")} style={btn(modo === "rango")}>
+          Por rango
+        </button>
+      </div>
+
+      {/* Controles según el modo */}
+      {modo === "dia" ? (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr auto",
+            gap: 12,
+            alignItems: "center",
+            marginBottom: 16,
+          }}
+        >
           <DatePicker
-            inline
             locale="es"
-            // OPCIÓN A: seleccionar varias fechas sueltas
-            onChange={onChangeDates}
-            // react-datepicker no trae "multi-select" nativo estable; este hack permite ctrl/click:
-            // usamos 'includeDates' para marcar lo ya elegido y 'onDayClick' para alternar manualmente.
-            dayClassName={(d) =>
-              fechasSel.map(ymd).includes(ymd(d)) ? "rp-selected" : undefined
-            }
-            onDayMouseDown={(e) => e.preventDefault()} // evita selección de texto
-            onDayClick={(d) => {
-              const key = ymd(d);
-              const keys = fechasSel.map(ymd);
-              if (keys.includes(key)) {
-                const filtered = fechasSel.filter((x) => ymd(x) !== key);
-                onChangeDates(filtered);
-              } else {
-                onChangeDates([...fechasSel, d]);
-              }
-            }}
+            selected={fecha}
+            onChange={setFecha}
+            maxDate={new Date()}
+            dateFormat="yyyy-MM-dd"
+            placeholderText="Selecciona fecha"
+            className="date-input"
           />
-          {/* mini estilo para marcar seleccionados */}
-          <style>
-            {`.rp-selected { background:#ffe1c4 !important; border-radius:50%; }`}
-          </style>
-
-          {/* Si prefieres SELECCIÓN POR RANGO:
-              - cambia el DatePicker por:
-                <DatePicker inline locale="es" selectsRange startDate={fechasSel[0]} endDate={fechasSel[1]} onChange={(r)=>{ setFechasSel(r); if(r[0]&&r[1]) loadDays(r); }} />
-              - y en loadDays crear un array de días entre start y end.
-          */}
+          <button
+            onClick={() => cargarDia(fecha)}
+            disabled={loading || !fecha}
+            style={callToAction(loading || !fecha)}
+          >
+            {loading ? "Buscando..." : "Buscar"}
+          </button>
         </div>
+      ) : (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr auto",
+            gap: 12,
+            alignItems: "center",
+            marginBottom: 16,
+          }}
+        >
+          <DatePicker
+            locale="es"
+            selectsRange
+            startDate={startDate}
+            endDate={endDate}
+            onChange={(upd) => setRango(upd)}
+            maxDate={new Date()}
+            dateFormat="yyyy-MM-dd"
+            isClearable
+            placeholderText="Selecciona rango (desde - hasta)"
+            className="date-input"
+          />
+          <button
+            onClick={() => cargarRango(startDate, endDate)}
+            disabled={loading || !startDate || !endDate}
+            style={callToAction(loading || !startDate || !endDate)}
+          >
+            {loading ? "Buscando..." : "Buscar"}
+          </button>
+        </div>
+      )}
 
-        <div>
-          <div style={{ marginBottom: 8, color: "#555" }}>
-            Fechas seleccionadas:{" "}
-            <strong>
-              {fechasSel.map((d) => d.toLocaleDateString("es-ES")).join(", ")}
-            </strong>
+      {error && (
+        <div
+          style={{
+            background: "#ffe0e0",
+            color: "#8a0000",
+            padding: "8px 12px",
+            borderRadius: 8,
+            marginBottom: 12,
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      {!loading && turnos.length === 0 && !error && (
+        <p style={{ opacity: 0.7 }}>
+          {modo === "dia"
+            ? "Elige una fecha y haz clic en Buscar."
+            : "Elige un rango y haz clic en Buscar."}
+        </p>
+      )}
+
+      {/* Render de resultados (tabla agrupada por fecha) */}
+      {Object.keys(agrupados).map((f) => (
+        <div
+          key={f}
+          style={{
+            background: "#fff",
+            border: "1px solid #eee",
+            borderRadius: 12,
+            padding: 12,
+            marginBottom: 12,
+            boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              marginBottom: 8,
+              alignItems: "center",
+            }}
+          >
+            <strong>{f}</strong>
+            <span style={{ fontSize: 12, opacity: 0.7 }}>
+              {agrupados[f].length} turno(s)
+            </span>
           </div>
 
-          {loading && <p>Cargando…</p>}
-          {error && <p style={{ color: "crimson" }}>{error}</p>}
-
-          {!loading && !error && fechasSel.map((d) => {
-            const key = ymd(d);
-            const turnos = turnosPorDia[key] || [];
-            return (
-              <div key={key} style={{ marginBottom: 18 }}>
-                <h3 style={{ margin: "12px 0 8px" }}>
-                  {d.toLocaleDateString("es-ES", {
-                    weekday: "long", day: "2-digit", month: "long", year: "numeric",
-                  })}
-                </h3>
-
-                {turnos.length === 0 ? (
-                  <p>No hay turnos para este día.</p>
-                ) : (
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                    <thead>
-                      <tr style={{ textAlign: "left", borderBottom: "1px solid #eee" }}>
-                        <th style={{ padding: "8px 6px" }}>Inicio</th>
-                        <th style={{ padding: "8px 6px" }}>Fin</th>
-                        <th style={{ padding: "8px 6px" }}>Tipo</th>
-                        <th style={{ padding: "8px 6px" }}>Sede</th>
-                        <th style={{ padding: "8px 6px" }}>Área</th>
-                        <th style={{ padding: "8px 6px" }}>Estado</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {turnos.map((t, i) => (
-                        <tr key={i} style={{ borderBottom: "1px solid #f5f5f5" }}>
-                          <td style={{ padding: "8px 6px" }}>{fmtTime(t.hora_inicio)}</td>
-                          <td style={{ padding: "8px 6px" }}>{fmtTime(t.hora_fin)}</td>
-                          <td style={{ padding: "8px 6px" }}>{t.tipo || "—"}</td>
-                          <td style={{ padding: "8px 6px" }}>{t.sede || "—"}</td>
-                          <td style={{ padding: "8px 6px" }}>{t.area || "—"}</td>
-                          <td style={{ padding: "8px 6px" }}>{t.estado || "Programado"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            );
-          })}
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+              <thead>
+                <tr>
+                  <th style={th}>Inicio</th>
+                  <th style={th}>Fin</th>
+                  <th style={th}>Proyecto</th>
+                  <th style={th}>Observación</th>
+                </tr>
+              </thead>
+              <tbody>
+                {agrupados[f].map((t, i) => (
+                  <tr key={i}>
+                    <td style={td}>
+                      {fmtTime(t.hora_inicio || t.horaInicio || t.inicio)}
+                    </td>
+                    <td style={td}>
+                      {fmtTime(t.hora_fin || t.horaFin || t.fin)}
+                    </td>
+                    <td style={td}>{t.proyecto || t.campaña || "—"}</td>
+                    <td style={td}>{t.observacion || t.nota || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      ))}
     </div>
   );
 }
+
+const th = {
+  textAlign: "left",
+  borderBottom: "1px solid #eee",
+  padding: "8px 6px",
+};
+
+const td = {
+  borderBottom: "1px solid #f5f5f5",
+  padding: "8px 6px",
+};
+
+const btn = (active) => ({
+  border: "none",
+  padding: "6px 10px",
+  borderRadius: 8,
+  fontWeight: 700,
+  background: active ? "#ff6a00" : "#fff",
+  color: active ? "#fff" : "#ff6a00",
+  boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+  cursor: "pointer",
+});
+
+const callToAction = (disabled) => ({
+  padding: "8px 16px",
+  borderRadius: 8,
+  border: "none",
+  background: disabled ? "#ffb98a" : "#ff6a00",
+  color: "#fff",
+  fontWeight: "bold",
+  cursor: disabled ? "not-allowed" : "pointer",
+});

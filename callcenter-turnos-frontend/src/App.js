@@ -4,7 +4,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import Header from "./components/Partials/Header";
 import Home from "./components/Paginas/Home";
 import Turnos from "./components/Paginas/Turnos";
-import Calendario from "./components/Paginas/Calendario"; // 👈 nuevo
+import Calendario from "./components/Paginas/Calendario";
 
 // Componente para proteger rutas privadas
 function PrivateRoute({ children }) {
