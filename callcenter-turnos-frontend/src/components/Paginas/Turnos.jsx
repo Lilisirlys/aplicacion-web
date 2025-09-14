@@ -6,6 +6,9 @@ import "react-datepicker/dist/react-datepicker.css";
 
 registerLocale("es", es);
 
+// ↑ URL base del backend (lee .env del FRONT: REACT_APP_API_BASE)
+const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:3001";
+
 // Normaliza a YYYY-MM-DD (corrige desfase de zona horaria local)
 const ymd = (d) =>
   new Date(d.getTime() - d.getTimezoneOffset() * 60000)
@@ -26,19 +29,19 @@ const daysBetween = (start, end) => {
   return out;
 };
 
-// Ajusta si tu backend está en otra URL/puerto
-const API_URL =
-  process.env.REACT_APP_API_URL ||
-  "http://localhost:3001";
+// Fechas con datos en tu BD demo
+const MIN_DATE = new Date("2025-09-01");
+const MAX_DATE = new Date("2025-12-31");
 
 export default function TurnosRango() {
-  // Identidad del asesor (igual que en tus otras pantallas)
+  // Identidad del asesor
   const agente = (() => {
     try { return JSON.parse(localStorage.getItem("agente")); } catch { return null; }
   })();
   const cedula = agente?.cedula || localStorage.getItem("cedula") || "";
 
-  const [rango, setRango] = useState([null, null]); // [start, end]
+  // Rango inicial con datos
+  const [rango, setRango] = useState([new Date("2025-09-01"), new Date("2025-09-30")]); // [start, end]
   const [loading, setLoading] = useState(false);
   const [turnos, setTurnos] = useState([]);
   const [error, setError] = useState("");
@@ -65,14 +68,13 @@ export default function TurnosRango() {
 
     try {
       // 1) Intentar endpoint de RANGO (si tu backend ya lo tiene)
-      const urlRango = `${API_URL}/api/turnos/rango?cedula=${encodeURIComponent(
+      const urlRango = `${API_BASE}/api/turnos/rango?cedula=${encodeURIComponent(
         cedula
       )}&desde=${desde}&hasta=${hasta}`;
 
       const r1 = await fetch(urlRango);
       if (r1.ok) {
         const data = await r1.json();
-        // admite {turnos:[...]} o directamente [...]
         const arr = Array.isArray(data) ? data : data?.turnos || [];
         setTurnos(arr);
         return;
@@ -82,9 +84,7 @@ export default function TurnosRango() {
       const fechas = daysBetween(startDate, endDate).map(ymd);
       const peticiones = fechas.map((f) =>
         fetch(
-          `${API_URL}/api/turnos/dia?cedula=${encodeURIComponent(
-            cedula
-          )}&fecha=${f}`
+          `${API_BASE}/api/turnos/dia?cedula=${encodeURIComponent(cedula)}&fecha=${f}`
         ).then((res) => (res.ok ? res.json() : []))
       );
 
@@ -131,7 +131,8 @@ export default function TurnosRango() {
           startDate={startDate}
           endDate={endDate}
           onChange={(update) => setRango(update)}
-          maxDate={new Date()}
+          minDate={MIN_DATE}
+          maxDate={MAX_DATE}
           dateFormat="yyyy-MM-dd"
           isClearable
           placeholderText="Selecciona rango (desde - hasta)"
@@ -209,7 +210,7 @@ export default function TurnosRango() {
                 <tr>
                   <th style={th}>Inicio</th>
                   <th style={th}>Fin</th>
-                  <th style={th}>Proyecto</th>
+                  <th style={th}>Tipo</th>
                   <th style={th}>Observación</th>
                 </tr>
               </thead>
@@ -217,15 +218,12 @@ export default function TurnosRango() {
                 {agrupados[fecha].map((t, i) => (
                   <tr key={i}>
                     <td style={td}>
-                      {t.hora_inicio?.slice?.(0, 5) ||
-                        t.horaInicio ||
-                        t.inicio ||
-                        "—"}
+                      {t.hora_inicio?.slice?.(0, 5) || t.horaInicio || t.inicio || "—"}
                     </td>
                     <td style={td}>
                       {t.hora_fin?.slice?.(0, 5) || t.horaFin || t.fin || "—"}
                     </td>
-                    <td style={td}>{t.proyecto || t.campaña || "—"}</td>
+                    <td style={td}>{t.tipo || "—"}</td>
                     <td style={td}>{t.observacion || t.nota || "—"}</td>
                   </tr>
                 ))}

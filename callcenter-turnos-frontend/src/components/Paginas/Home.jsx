@@ -2,13 +2,14 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
-// Usa el proxy de CRA: siempre rutas relativas "/api/...".
-const API = ""; // si algún día necesitas saltarte el proxy: "http://localhost:8013"
+// URL base del backend (lee .env del FRONT: REACT_APP_API_BASE)
+const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:3001";
 
+// Util: normaliza dd/mm/yyyy o dd-mm-yyyy a yyyy-mm-dd
 function toYYYYMMDD(s) {
   if (!s) return "";
   const str = String(s).trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str; // ya viene yyyy-mm-dd
   const m = str.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
   if (!m) return "";
   const d = m[1].padStart(2, "0");
@@ -19,20 +20,26 @@ function toYYYYMMDD(s) {
 }
 
 export default function Home() {
-  const [cedula, setCedula] = useState("");
-  const [fechaNacimiento, setFechaNacimiento] = useState("");
+  // Prefill útil para pruebas: toma lo que haya en localStorage o deja vacío
+  const [cedula, setCedula] = useState(localStorage.getItem("cedula") || "");
+  const [fechaNacimiento, setFechaNacimiento] = useState(
+    localStorage.getItem("fechaNacimiento") || ""
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => {
-    console.log("Home.jsx cargado. API base =", API || "(proxy)");
-    // Si ya hay sesión, manda directo a calendario
-    const ag = localStorage.getItem("agente");
-    if (ag) navigate("/calendario");
+    console.log("Home.jsx cargado. API_BASE =", API_BASE);
+    // Si ya hay sesión iniciada, redirige a calendario
+    try {
+      const ag = localStorage.getItem("agente");
+      if (ag) navigate("/calendario");
+    } catch {}
   }, [navigate]);
 
-  const formInvalido = !cedula.trim() || !toYYYYMMDD(fechaNacimiento);
+  const fechaNormalizada = toYYYYMMDD(fechaNacimiento);
+  const formInvalido = !cedula.trim() || !fechaNormalizada;
 
   async function onSubmit(e) {
     e.preventDefault();
@@ -40,17 +47,21 @@ export default function Home() {
     setError("");
 
     const ced = cedula.trim();
-    const fecha = toYYYYMMDD(fechaNacimiento);
+    const fecha = fechaNormalizada;
 
     try {
       setLoading(true);
 
-      const resp = await fetch(`/api/login`, {
+      const resp = await fetch(`${API_BASE}/api/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
         body: JSON.stringify({ cedula: ced, fecha_nacimiento: fecha }),
       });
 
+      // Intenta parsear JSON; si no, cae a texto
       let data;
       try {
         data = await resp.clone().json();
@@ -65,16 +76,17 @@ export default function Home() {
         throw new Error(data.msg || `Error (HTTP ${resp.status})`);
       }
 
+      // Se espera { ok: true, agente, token? }
       if (data.token) localStorage.setItem("token", data.token);
       if (data.agente) localStorage.setItem("agente", JSON.stringify(data.agente));
+
       localStorage.setItem("cedula", ced);
       localStorage.setItem("fechaNacimiento", fecha);
 
       // Limpia inputs (opcional)
-      setCedula("");
-      setFechaNacimiento("");
+      // setCedula("");
+      // setFechaNacimiento("");
 
-      // 👉 Redirige al calendario
       navigate("/calendario");
     } catch (err) {
       console.error(err);
@@ -96,10 +108,10 @@ export default function Home() {
             inputMode="numeric"
             value={cedula}
             onChange={(e) => {
-              setCedula(e.target.value.replace(/\D/g, ""));
+              setCedula(e.target.value.replace(/\D/g, "")); // solo dígitos
               if (error) setError("");
             }}
-            placeholder="Ej: 1022345134"
+            placeholder="Ej: 1000000001"
             style={{ width: "100%", padding: 8, marginTop: 4 }}
             required
           />
@@ -111,16 +123,21 @@ export default function Home() {
             type="date"
             value={fechaNacimiento}
             onChange={(e) => {
-              setFechaNacimiento(e.target.value);
+              setFechaNacimiento(e.target.value); // yyyy-mm-dd del date input
               if (error) setError("");
             }}
+            // evita fechas futuras
             max={new Date().toISOString().split("T")[0]}
             required
             style={{ width: "100%", padding: 8, marginTop: 4 }}
           />
         </label>
 
-        {error && <p style={{ color: "crimson", marginTop: 6 }}>{error}</p>}
+        {error && (
+          <p style={{ color: "crimson", marginTop: 6 }}>
+            {error}
+          </p>
+        )}
 
         <button
           type="submit"
@@ -129,11 +146,22 @@ export default function Home() {
             padding: 10,
             width: "100%",
             marginTop: 8,
-            cursor: loading ? "not-allowed" : "pointer",
+            cursor: loading || formInvalido ? "not-allowed" : "pointer",
+            background: "#ff6a00",
+            color: "#fff",
+            border: "none",
+            borderRadius: 8,
+            fontWeight: 700,
           }}
         >
           {loading ? "Enviando..." : "Entrar"}
         </button>
+
+        {/* Ayuda para pruebas (opcional): */}
+        <p style={{ fontSize: 12, opacity: 0.7, marginTop: 8 }}>
+          Recuerda: la BD demo tiene datos entre <b>2025-09-01</b> y <b>2025-12-31</b>.{" "}
+          Asegúrate de haber asignado una <b>fecha de nacimiento</b> al agente en la base.
+        </p>
       </form>
     </div>
   );

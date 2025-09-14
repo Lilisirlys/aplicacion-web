@@ -7,6 +7,9 @@ import "react-datepicker/dist/react-datepicker.css";
 
 registerLocale("es", es);
 
+// ↑ Config de API para el FRONT (lee .env del frontend)
+const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:3001";
+
 // Corrige zona horaria y devuelve YYYY-MM-DD
 const ymd = (d) =>
   new Date(d.getTime() - d.getTimezoneOffset() * 60000)
@@ -28,7 +31,9 @@ const daysBetween = (start, end) => {
   return out;
 };
 
-const API_URL = process.env.REACT_APP_API_URL || "http://localhost:3001";
+// Ventana con datos cargados en tu BD
+const MIN_DATE = new Date("2025-09-01");
+const MAX_DATE = new Date("2025-12-31");
 
 export default function Calendario() {
   const navigate = useNavigate();
@@ -45,8 +50,8 @@ export default function Calendario() {
 
   // --- Estado UI ---
   const [modo, setModo] = useState("dia"); // "dia" | "rango"
-  const [fecha, setFecha] = useState(new Date()); // modo día
-  const [rango, setRango] = useState([null, null]); // modo rango
+  const [fecha, setFecha] = useState(new Date("2025-09-01")); // empieza donde hay datos
+  const [rango, setRango] = useState([null, null]); // o [new Date("2025-09-01"), new Date("2025-09-30")]
   const [loading, setLoading] = useState(false);
   const [turnos, setTurnos] = useState([]);
   const [error, setError] = useState("");
@@ -70,7 +75,7 @@ export default function Calendario() {
     const f = ymd(d);
     try {
       const res = await fetch(
-        `${API_URL}/api/turnos/dia?cedula=${encodeURIComponent(cedula)}&fecha=${f}`
+        `${API_BASE}/api/turnos/dia?cedula=${encodeURIComponent(cedula)}&fecha=${f}`
       );
       if (!res.ok) throw new Error("Respuesta no OK");
       const data = await res.json();
@@ -101,7 +106,7 @@ export default function Calendario() {
 
     try {
       // 1) Intento /api/turnos/rango si existe
-      const urlRango = `${API_URL}/api/turnos/rango?cedula=${encodeURIComponent(
+      const urlRango = `${API_BASE}/api/turnos/rango?cedula=${encodeURIComponent(
         cedula
       )}&desde=${desde}&hasta=${hasta}`;
       const r1 = await fetch(urlRango);
@@ -116,7 +121,7 @@ export default function Calendario() {
       const fechas = daysBetween(s, e).map(ymd);
       const peticiones = fechas.map((f) =>
         fetch(
-          `${API_URL}/api/turnos/dia?cedula=${encodeURIComponent(cedula)}&fecha=${f}`
+          `${API_BASE}/api/turnos/dia?cedula=${encodeURIComponent(cedula)}&fecha=${f}`
         ).then((res) => (res.ok ? res.json() : []))
       );
       const porDia = await Promise.all(peticiones);
@@ -173,9 +178,10 @@ export default function Calendario() {
             locale="es"
             selected={fecha}
             onChange={setFecha}
-            maxDate={new Date()}
+            minDate={MIN_DATE}
+            maxDate={MAX_DATE}
             dateFormat="yyyy-MM-dd"
-            placeholderText="Selecciona fecha"
+            placeholderText="Selecciona fecha (sep–dic 2025)"
             className="date-input"
           />
           <button
@@ -202,10 +208,11 @@ export default function Calendario() {
             startDate={startDate}
             endDate={endDate}
             onChange={(upd) => setRango(upd)}
-            maxDate={new Date()}
+            minDate={MIN_DATE}
+            maxDate={MAX_DATE}
             dateFormat="yyyy-MM-dd"
             isClearable
-            placeholderText="Selecciona rango (desde - hasta)"
+            placeholderText="Selecciona rango (sep–dic 2025)"
             className="date-input"
           />
           <button
@@ -287,7 +294,7 @@ export default function Calendario() {
                       {fmtTime(t.hora_fin || t.horaFin || t.fin)}
                     </td>
                     <td style={td}>{t.proyecto || t.campaña || "—"}</td>
-                    <td style={td}>{t.observacion || t.nota || "—"}</td>
+                    <td style={td}>{t.observacion || t.nota || t.tipo || "—"}</td>
                   </tr>
                 ))}
               </tbody>
