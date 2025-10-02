@@ -6,10 +6,13 @@ import "react-datepicker/dist/react-datepicker.css";
 
 registerLocale("es", es);
 
-// ↑ URL base del backend (lee .env del FRONT: REACT_APP_API_BASE)
-const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:3001";
+// URL base del backend: acepta ambas variables por compatibilidad
+const API_BASE =
+  process.env.REACT_APP_API_URL ||
+  process.env.REACT_APP_API_BASE ||
+  "http://localhost:3001";
 
-// Normaliza a YYYY-MM-DD (corrige desfase de zona horaria local)
+// Normaliza a YYYY-MM-DD corrigiendo zona horaria local
 const ymd = (d) =>
   new Date(d.getTime() - d.getTimezoneOffset() * 60000)
     .toISOString()
@@ -29,8 +32,8 @@ const daysBetween = (start, end) => {
   return out;
 };
 
-// Fechas con datos en tu BD demo
-const MIN_DATE = new Date("2025-09-01");
+// Límites para el selector (ajústalos si tu BD tiene otras fechas)
+const MIN_DATE = new Date("2025-08-01");
 const MAX_DATE = new Date("2025-12-31");
 
 export default function TurnosRango() {
@@ -38,10 +41,13 @@ export default function TurnosRango() {
   const agente = (() => {
     try { return JSON.parse(localStorage.getItem("agente")); } catch { return null; }
   })();
-  const cedula = agente?.cedula || localStorage.getItem("cedula") || "";
+  const cedulaLS = agente?.cedula || localStorage.getItem("cedula") || "";
 
-  // Rango inicial con datos
-  const [rango, setRango] = useState([new Date("2025-09-01"), new Date("2025-09-30")]); // [start, end]
+  // Permito editar la cédula para pruebas si no está en localStorage
+  const [cedula, setCedula] = useState(cedulaLS);
+
+  // Rango inicial
+  const [rango, setRango] = useState([new Date("2025-09-01"), new Date("2025-09-10")]); // [start, end]
   const [loading, setLoading] = useState(false);
   const [turnos, setTurnos] = useState([]);
   const [error, setError] = useState("");
@@ -49,60 +55,85 @@ export default function TurnosRango() {
   const [startDate, endDate] = rango;
   const rangoValido = Boolean(startDate && endDate);
 
+  function pickArray(payload) {
+    // Devuelve siempre un array de turnos sin importar el formato del backend
+    if (Array.isArray(payload)) return payload;
+    if (payload?.data && Array.isArray(payload.data)) return payload.data;
+    if (payload?.turnos && Array.isArray(payload.turnos)) return payload.turnos;
+    return [];
+  }
+
   async function cargarTurnosRango() {
-    setError("");
-    setTurnos([]);
-
-    if (!cedula) {
-      setError("No se encontró la cédula del agente (revisa el login/localStorage).");
-      return;
-    }
-    if (!rangoValido) {
-      setError("Selecciona un rango de fechas válido.");
-      return;
-    }
-
-    setLoading(true);
-    const desde = ymd(startDate);
-    const hasta = ymd(endDate);
-
     try {
-      // 1) Intentar endpoint de RANGO (si tu backend ya lo tiene)
+      setError("");
+      setTurnos([]);
+
+      if (!cedula) {
+        setError("No se encontró la cédula del agente. Escríbela en el campo o inicia sesión.");
+        return;
+      }
+      if (!rangoValido) {
+        setError("Selecciona un rango de fechas válido.");
+        return;
+      }
+
+      setLoading(true);
+
+      const desde = ymd(startDate);
+      const hasta = ymd(endDate);
+
+      // 1) Intentar endpoint de RANGO
       const urlRango = `${API_BASE}/api/turnos/rango?cedula=${encodeURIComponent(
         cedula
       )}&desde=${desde}&hasta=${hasta}`;
 
+      console.log("[TURNOS] GET:", urlRango);
       const r1 = await fetch(urlRango);
+      const j1 = await r1.json().catch(() => ({}));
+      console.log("[TURNOS] RESP:", r1.status, j1);
+
       if (r1.ok) {
-        const data = await r1.json();
-        const arr = Array.isArray(data) ? data : data?.turnos || [];
-        setTurnos(arr);
+        // Si backend usa {ok:false,...}, reviso ok
+        if (j1?.ok === false) {
+          throw new Error(j1?.detail || j1?.msg || "Error DB");
+        }
+        setTurnos(pickArray(j1));
         return;
+      } else {
+        // Si no es ok, intento mostrar detalle del backend
+        throw new Error(j1?.detail || j1?.msg || `HTTP ${r1.status}`);
       }
-
-      // 2) Fallback: pedir día a día a /api/turnos/dia
-      const fechas = daysBetween(startDate, endDate).map(ymd);
-      const peticiones = fechas.map((f) =>
-        fetch(
-          `${API_BASE}/api/turnos/dia?cedula=${encodeURIComponent(cedula)}&fecha=${f}`
-        ).then((res) => (res.ok ? res.json() : []))
-      );
-
-      const porDia = await Promise.all(peticiones);
-      const combinados = porDia
-        .flatMap((x) => (Array.isArray(x) ? x : x?.turnos || []))
-        .filter(Boolean);
-
-      setTurnos(combinados);
     } catch (e) {
-      console.error(e);
-      setError("No se pudieron cargar los turnos. Revisa tu conexión o el backend.");
+      console.warn("[TURNOS] Error rango:", e?.message || e);
+      // 2) Fallback: pedir día a día si la ruta /rango no existe en tu backend
+      try {
+        const fechas = daysBetween(startDate, endDate).map(ymd);
+        const peticiones = fechas.map((f) =>
+          fetch(`${API_BASE}/api/turnos/dia?cedula=${encodeURIComponent(cedula)}&fecha=${f}`)
+            .then(async (res) => {
+              const j = await res.json().catch(() => ({}));
+              if (!res.ok || j?.ok === false) return [];
+              return pickArray(j);
+            })
+            .catch(() => [])
+        );
+
+        const porDia = await Promise.all(peticiones);
+        const combinados = porDia.flat().filter(Boolean);
+        setTurnos(combinados);
+        if (combinados.length === 0) {
+          setError("No se encontraron turnos para el rango seleccionado.");
+        }
+      } catch (e2) {
+        console.error("[TURNOS] Fallback día a día también falló:", e2);
+        setError("No se pudieron cargar los turnos. Revisa conexión, puerto del backend y la BD.");
+      }
     } finally {
       setLoading(false);
     }
   }
 
-  // Agrupado por fecha para mostrar bonito
+  // Agrupa por fecha para dibujar tabla
   const agrupados = useMemo(() => {
     const g = {};
     for (const t of turnos) {
@@ -116,6 +147,7 @@ export default function TurnosRango() {
     <div style={{ maxWidth: 980, margin: "24px auto", padding: "0 16px" }}>
       <h2 style={{ marginBottom: 12 }}>Turnos por rango</h2>
 
+      {/* Panel de filtros */}
       <div
         style={{
           display: "grid",
@@ -125,6 +157,15 @@ export default function TurnosRango() {
           marginBottom: 16,
         }}
       >
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <input
+            type="text"
+            placeholder="Cédula"
+            value={cedula}
+            onChange={(e) => setCedula(e.target.value)}
+            style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #ddd", width: 180 }}
+          />
+
         <DatePicker
           locale="es"
           selectsRange
@@ -138,6 +179,7 @@ export default function TurnosRango() {
           placeholderText="Selecciona rango (desde - hasta)"
           className="date-input"
         />
+        </div>
 
         <button
           onClick={cargarTurnosRango}
@@ -156,6 +198,7 @@ export default function TurnosRango() {
         </button>
       </div>
 
+      {/* Mensajes */}
       {error && (
         <div
           style={{
@@ -176,6 +219,7 @@ export default function TurnosRango() {
         </p>
       )}
 
+      {/* Resultados */}
       {Object.keys(agrupados).map((fecha) => (
         <div
           key={fecha}
@@ -203,9 +247,7 @@ export default function TurnosRango() {
           </div>
 
           <div style={{ overflowX: "auto" }}>
-            <table
-              style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}
-            >
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
               <thead>
                 <tr>
                   <th style={th}>Inicio</th>
@@ -223,7 +265,7 @@ export default function TurnosRango() {
                     <td style={td}>
                       {t.hora_fin?.slice?.(0, 5) || t.horaFin || t.fin || "—"}
                     </td>
-                    <td style={td}>{t.tipo || "—"}</td>
+                    <td style={td}>{t.tipo || t.estado || "—"}</td>
                     <td style={td}>{t.observacion || t.nota || "—"}</td>
                   </tr>
                 ))}

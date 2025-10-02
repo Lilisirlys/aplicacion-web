@@ -61,7 +61,6 @@ export default function Home() {
         body: JSON.stringify({ cedula: ced, fecha_nacimiento: fecha }),
       });
 
-      // Intenta parsear JSON; si no, cae a texto
       let data;
       try {
         data = await resp.clone().json();
@@ -76,16 +75,11 @@ export default function Home() {
         throw new Error(data.msg || `Error (HTTP ${resp.status})`);
       }
 
-      // Se espera { ok: true, agente, token? }
       if (data.token) localStorage.setItem("token", data.token);
       if (data.agente) localStorage.setItem("agente", JSON.stringify(data.agente));
 
       localStorage.setItem("cedula", ced);
       localStorage.setItem("fechaNacimiento", fecha);
-
-      // Limpia inputs (opcional)
-      // setCedula("");
-      // setFechaNacimiento("");
 
       navigate("/calendario");
     } catch (err) {
@@ -97,72 +91,96 @@ export default function Home() {
   }
 
   return (
-    <div style={{ maxWidth: 420, margin: "40px auto", padding: 8 }}>
-      <h2>Ingresar</h2>
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gap: "24px",
+        alignItems: "center",
+        padding: "24px",
+        maxWidth: "1100px",
+        margin: "0 auto",
+      }}
+    >
+      {/* IZQUIERDA: Formulario de login */}
+      <div>
+        <h2 style={{ marginBottom: "12px" }}>Inicia sesión</h2>
+        <form onSubmit={onSubmit} autoComplete="off" noValidate>
+          <label style={{ display: "block", marginBottom: 8 }}>
+            Cédula
+            <input
+              type="tel"
+              inputMode="numeric"
+              value={cedula}
+              onChange={(e) => {
+                setCedula(e.target.value.replace(/\D/g, ""));
+                if (error) setError("");
+              }}
+              placeholder="Ej: 1000000001"
+              style={{ width: "100%", padding: 8, marginTop: 4 }}
+              required
+            />
+          </label>
 
-      <form onSubmit={onSubmit} autoComplete="off" noValidate>
-        <label style={{ display: "block", marginBottom: 8 }}>
-          Cédula
-          <input
-            type="tel"
-            inputMode="numeric"
-            value={cedula}
-            onChange={(e) => {
-              setCedula(e.target.value.replace(/\D/g, "")); // solo dígitos
-              if (error) setError("");
+          <label style={{ display: "block", marginBottom: 8 }}>
+            Fecha de nacimiento
+            <input
+              type="date"
+              value={fechaNacimiento}
+              onChange={(e) => {
+                setFechaNacimiento(e.target.value);
+                if (error) setError("");
+              }}
+              max={new Date().toISOString().split("T")[0]}
+              required
+              style={{ width: "100%", padding: 8, marginTop: 4 }}
+            />
+          </label>
+
+          {error && (
+            <p style={{ color: "crimson", marginTop: 6 }}>
+              {error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading || formInvalido}
+            style={{
+              padding: 10,
+              width: "100%",
+              marginTop: 8,
+              cursor: loading || formInvalido ? "not-allowed" : "pointer",
+              background: "#ff6a00",
+              color: "#fff",
+              border: "none",
+              borderRadius: 8,
+              fontWeight: 700,
             }}
-            placeholder="Ej: 1000000001"
-            style={{ width: "100%", padding: 8, marginTop: 4 }}
-            required
-          />
-        </label>
+          >
+            {loading ? "Enviando..." : "Entrar"}
+          </button>
 
-        <label style={{ display: "block", marginBottom: 8 }}>
-          Fecha de nacimiento
-          <input
-            type="date"
-            value={fechaNacimiento}
-            onChange={(e) => {
-              setFechaNacimiento(e.target.value); // yyyy-mm-dd del date input
-              if (error) setError("");
-            }}
-            // evita fechas futuras
-            max={new Date().toISOString().split("T")[0]}
-            required
-            style={{ width: "100%", padding: 8, marginTop: 4 }}
-          />
-        </label>
-
-        {error && (
-          <p style={{ color: "crimson", marginTop: 6 }}>
-            {error}
+          <p style={{ fontSize: 12, opacity: 0.7, marginTop: 8 }}>
+            Recuerda: la BD demo tiene datos entre <b>2025-09-01</b> y <b>2025-12-31</b>.{" "}
+            Asegúrate de haber asignado una <b>fecha de nacimiento</b> al agente en la base.
           </p>
-        )}
+        </form>
+      </div>
 
-        <button
-          type="submit"
-          disabled={loading || formInvalido}
+      {/* DERECHA: el flyer */}
+      <div style={{ textAlign: "center" }}>
+        <img
+          src="/img/flyer.png"
+          alt="Flyer Turnos Jazzplat"
           style={{
-            padding: 10,
-            width: "100%",
-            marginTop: 8,
-            cursor: loading || formInvalido ? "not-allowed" : "pointer",
-            background: "#ff6a00",
-            color: "#fff",
-            border: "none",
-            borderRadius: 8,
-            fontWeight: 700,
+            maxWidth: "100%",
+            height: "auto",
+            borderRadius: "12px",
+            boxShadow: "0 6px 18px rgba(0,0,0,0.15)",
           }}
-        >
-          {loading ? "Enviando..." : "Entrar"}
-        </button>
-
-        {/* Ayuda para pruebas (opcional): */}
-        <p style={{ fontSize: 12, opacity: 0.7, marginTop: 8 }}>
-          Recuerda: la BD demo tiene datos entre <b>2025-09-01</b> y <b>2025-12-31</b>.{" "}
-          Asegúrate de haber asignado una <b>fecha de nacimiento</b> al agente en la base.
-        </p>
-      </form>
+        />
+      </div>
     </div>
   );
 }
